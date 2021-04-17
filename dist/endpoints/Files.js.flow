@@ -1,0 +1,172 @@
+// @flow
+import { promises as fs } from "fs";
+import type {
+  BranchCommitDescriptor,
+  File,
+  FileDescriptor,
+  RawProgressOptions,
+  RequestOptions
+} from "../types";
+import { FileExportError, NotFoundError } from "../errors";
+import { isNodeEnvironment, wrap } from "../util/helpers";
+import Endpoint from "../endpoints/Endpoint";
+
+const EXPORT_STATUS_CHECK_INTERVAL = 2000; // 2 seconds
+const MAX_EXPORT_DURATION = 1000 * 60 * 5; // 5 minutes
+
+export default class Files extends Endpoint {
+  name = "files";
+
+  async info(descriptor: FileDescriptor, requestOptions: RequestOptions = {}) {
+    const latestDescriptor = await this.client.descriptors.getLatestDescriptor(
+      descriptor
+    );
+
+    return this.configureRequest<Promise<File>>("info", {
+      api: async () => {
+        const { fileId, ...branchDescriptor } = latestDescriptor;
+        const files = await this.list(branchDescriptor);
+        const file = files.find(file => file.id === latestDescriptor.fileId);
+        if (!file) {
+          throw new NotFoundError(`fileId=${latestDescriptor.fileId}`);
+        }
+        return wrap(file);
+      },
+
+      cli: async () => {
+        const response = await this.cliRequest([
+          "files",
+          "meta",
+          latestDescriptor.fileId,
+          `--project-id=${latestDescriptor.projectId}`,
+          `--sha=${latestDescriptor.sha}`
+        ]);
+
+        return wrap(response.file, response);
+      },
+
+      requestOptions
+    });
+  }
+
+  async list(
+    descriptor: BranchCommitDescriptor,
+    requestOptions: RequestOptions = {}
+  ) {
+    const latestDescriptor = await this.client.descriptors.getLatestDescriptor(
+      descriptor
+    );
+
+    return this.configureRequest<Promise<File[]>>("list", {
+      api: async () => {
+        const response = await this.apiRequest(
+          `projects/${latestDescriptor.projectId}/branches/${latestDescriptor.branchId}/commits/${latestDescriptor.sha}/files`
+        );
+
+        return wrap(response.files, response);
+      },
+
+      cli: async () => {
+        const response = await this.cliRequest([
+          "files",
+          "list",
+          `--project-id=${latestDescriptor.projectId}`,
+          `--sha=${latestDescriptor.sha}`
+        ]);
+
+        return wrap(response.files, response);
+      },
+
+      requestOptions
+    });
+  }
+
+  async raw(descriptor: FileDescriptor, options: RawProgressOptions = {}) {
+    const { disableWrite, filename, onProgress, ...requestOptions } = options;
+    const latestDescriptor = await this.client.descriptors.getLatestDescriptor(
+      descriptor
+    );
+
+    return this.configureRequest<Promise<ArrayBuffer | void>>("raw", {
+      api: async () => {
+        const exportRequest = (exportId?: string) => {
+          return this.apiRequest(
+            `projects/${latestDescriptor.projectId}/branches/${latestDescriptor.branchId}/files/${latestDescriptor.fileId}/export`,
+            {
+              method: "POST",
+              body: { ...latestDescriptor, export_id: exportId }
+            }
+          );
+        };
+
+        const file = await this.info(latestDescriptor);
+        let exportJob = await exportRequest();
+
+        const checkStatus = async (count: number) => {
+          exportJob = await exportRequest(exportJob.id);
+
+          if (exportJob.status === "complete") {
+            const fileUrl = await this.options.objectUrl;
+            const filePath = exportJob.downloadUrl.replace(
+              /^\S+:\/\/objects.goabstract.com\//,
+              ""
+            );
+
+            const arrayBuffer = await this.apiRequest(
+              filePath,
+              {
+                headers: {
+                  Accept: undefined,
+                  "Content-Type": undefined
+                }
+              },
+              {
+                customHostname: fileUrl,
+                raw: true,
+                onProgress
+              }
+            );
+
+            /* istanbul ignore if */
+            if (isNodeEnvironment() && !disableWrite) {
+              const diskLocation = filename || `${file.name}.sketch`;
+              fs.writeFile(diskLocation, Buffer.from(arrayBuffer));
+            }
+
+            return arrayBuffer;
+          } else if (
+            count * EXPORT_STATUS_CHECK_INTERVAL >= MAX_EXPORT_DURATION ||
+            exportJob.status === "failed"
+          ) {
+            throw new FileExportError(file.id, exportJob.id);
+          } else {
+            await new Promise(resolve =>
+              setTimeout(resolve, EXPORT_STATUS_CHECK_INTERVAL)
+            );
+            return checkStatus(count + 1);
+          }
+        };
+
+        return checkStatus(0);
+      },
+
+      cli: async () => {
+        /* istanbul ignore if */
+        if (!isNodeEnvironment() || disableWrite) {
+          return;
+        }
+
+        await this.cliRequest([
+          "files",
+          "export",
+          latestDescriptor.fileId,
+          filename || process.cwd(),
+          `--project-id=${latestDescriptor.projectId}`,
+          `--branch-id=${latestDescriptor.branchId}`,
+          `--sha=${latestDescriptor.sha}`
+        ]);
+      },
+      requestOptions
+    });
+  }
+}
