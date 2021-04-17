@@ -1,0 +1,33 @@
+{
+  "name": "@elasticprojects/abstract-cli",
+  "version": "12.3.0",
+  "license": "MIT",
+  "repository": "goabstract/abstract-sdk",
+  "homepage": "https://sdk.goabstract.com/",
+  "main": "index.js",
+  "files": [
+    "bin",
+    "config",
+    "index.js"
+  ],
+  "scripts": {
+    "version": "conventional-changelog -p angular -i CHANGELOG-INTERNAL.md -s -r 1 --lerna-package='cli' --config ./changelog-config.js && git add CHANGELOG-INTERNAL.md",
+    "test": "go test -cover ./...",
+    "test:js": "jest",
+    "build:debug:win32": "go build -race -v -ldflags \"-s -X main.Debug=1\" -o bin/abstract-cli.exe && cd ..\\abstractd && (bundle check || bundle install) && set DEV=1 && set DEBUG=1 && rake build",
+    "build:debug:darwin": "go build -race -v -ldflags \"-s -X main.Debug=1\" -o bin/abstract-cli && cd ../abstractd && (bundle check || bundle install) && DEV=1 DEBUG=1 rake build",
+    "build:debug": "run-script-os",
+    "build:win32": "go build -v -ldflags \"-s -w -X main.Debug=0\" -o bin/abstract-cli.exe && cd ..\\abstractd && (bundle check || bundle install) && set DEV=0 && set DEBUG=0 && rake build",
+    "build:darwin": "go build -v -ldflags \"-s -w -X main.Debug=0\" -o bin/abstract-cli && cd ../abstractd && (bundle check || bundle install) && rake build",
+    "build": "run-script-os",
+    "build:release:win32": "go build -v -ldflags \"-s -w -X main.SentryEnvironment=release -X github.com/goabstract/projects/stable/abstract-cli/constants.Version=$npm_package_version -X main.Debug=0\" -o bin/abstract-cli.exe && cd ..\\abstractd",
+    "build:release:darwin": "go build -v -ldflags \"-s -w -X main.SentryEnvironment=release -X github.com/goabstract/projects/stable/abstract-cli/constants.Version=$npm_package_version -X main.Debug=0\" -o bin/abstract-cli && cd ../abstractd",
+    "build:release": "run-script-os",
+    "next-version": "conventional-recommended-bump --lerna-package='cli' --config ./changelog-config.js"
+  },
+  "devDependencies": {
+    "conventional-changelog-cli": "^2.0.35",
+    "conventional-recommended-bump": "^6.0.5",
+    "run-script-os": "^1.1.1"
+  }
+}
