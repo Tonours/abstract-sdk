@@ -20,7 +20,7 @@ import type {
   RequestConfig
 } from "../types";
 
-const cliPath = require("../../local-packages/abstract-cli");
+const cliPath = require("../abstract-cli");
 const logAPIRequest = log.extend("AbstractAPI:request");
 const logAPIResponse = log.extend("AbstractAPI:response");
 const logCLIRequest = log.extend("AbstractCLI:request");
